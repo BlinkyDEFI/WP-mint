@@ -156,7 +156,7 @@ export default function Index() {
               mintLimit: some({
                 id: 1,
               }),
-              // For your guard’s tokenPayment = 1060000 BLINKY
+              // For your guard’s tokenPayment = 400 BLINKY
               tokenPayment: some({
                 mint: TOKEN_MINT,
                 amount: TOKEN_AMOUNT,
