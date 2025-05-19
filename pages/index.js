@@ -27,17 +27,15 @@ import { setComputeUnitLimit } from '@metaplex-foundation/mpl-toolbox';
 /*
    CONFIG:
    - Candy Machine & Guard
-   - BLINKY tokenPayment => 400 tokens
+   - BLINKY tokenPayment => 1060000 tokens
    - mintLimit => id=1
 */
 
-const RPC_ENDPOINT = 'https://mainnet.helius-rpc.com/?api-key=028d2557-f0fa-4296-a0a1-dd97007e2d36';
-const CANDY_MACHINE_ID = new PublicKey('G9Fiig42gnjSJjMCnW4ujrCc8YwCR1Un1yvWp5zfTPFC');
-const CANDY_GUARD_ID = new PublicKey('9R248VtZA5YRbPTFPVYbfh1o2UmCd8zbwAkeLV3w23Gc');
-const TOKEN_MINT = new PublicKey('B4fuA7wKBagyR1V5BBAhGJu7z2cD16rubZ5HPUNcpump');
-
-// 400 BLINKY with 6 decimals => 400_000_000
-const TOKEN_AMOUNT = 400000000n;
+const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_ENDPOINT;
+const CANDY_MACHINE_ID = new PublicKey(process.env.NEXT_PUBLIC_CANDY_MACHINE_ID);
+const CANDY_GUARD_ID = new PublicKey(process.env.NEXT_PUBLIC_CANDY_GUARD_ID);
+const TOKEN_MINT = new PublicKey(process.env.NEXT_PUBLIC_TOKEN_MINT);
+const TOKEN_AMOUNT = BigInt(process.env.NEXT_PUBLIC_TOKEN_AMOUNT); // Single declaration
 
 // Next.js approach to the wallet connect button
 const WalletMultiButtonDynamic = dynamic(
@@ -60,7 +58,6 @@ export default function Index() {
 
   // Create Umi instance once
   const umi = useMemo(() => {
-    console.log('Using RPC:', RPC_ENDPOINT);
     return createUmi(RPC_ENDPOINT)
       .use(walletAdapterIdentity(wallet))
       .use(mplCandyMachine());
@@ -82,33 +79,7 @@ export default function Index() {
   // 1) Load Candy Machine
   async function fetchCandyMachineData() {
     try {
-      const connection = new Connection(RPC_ENDPOINT, 'confirmed');
-      const accountInfo = await connection.getAccountInfo(CANDY_MACHINE_ID);
-      console.log('Raw account info:', {
-        exists: !!accountInfo,
-        lamports: accountInfo?.lamports,
-        owner: accountInfo?.owner?.toBase58(),
-        dataLength: accountInfo?.data?.length,
-      });
-
       const cm = await fetchCandyMachine(umi, CANDY_MACHINE_ID);
-      const cmData = {
-        itemsAvailable: cm.itemsAvailable?.toString() || cm.items?.length.toString(), // Fallback to items.length
-        itemsRedeemed: cm.itemsRedeemed?.toString(),
-        collectionMint: cm.collectionMint?.toString(),
-        authority: cm.authority?.toString(),
-        items: cm.items ? cm.items.length : undefined,
-        version: cm.version,
-      };
-      console.log('Candy Machine fetched:', cmData);
-
-      // Check if we have valid data
-      if (!cmData.itemsAvailable || !cmData.itemsRedeemed) {
-        console.warn('Candy Machine missing expected properties:', cmData);
-        setStatus('❌ Candy Machine error: Missing itemsAvailable or itemsRedeemed');
-        return;
-      }
-
       setItemsRedeemed(cm.itemsRedeemed.toString());
     } catch (err) {
       console.error('Candy Machine fetch error:', err);
@@ -124,6 +95,7 @@ export default function Index() {
       const ata = getAssociatedTokenAddressSync(TOKEN_MINT, wallet.publicKey);
       const accountInfo = await getAccount(connection, ata);
       const rawBalance = accountInfo.amount; // BigInt
+      // If BLINKY has 6 decimals, convert raw => float
       const floatBalance = Number(rawBalance) / 1_000_000;
       setBlinkyBalance(floatBalance);
       console.log('User BLINKY balance is', floatBalance);
@@ -135,64 +107,43 @@ export default function Index() {
 
   // 3) Mint function
   async function handleMint() {
-    if (!wallet.connected || isLoading) {
-      setStatus('❌ Wallet not connected or already processing');
-      return;
-    }
+    if (!wallet.connected || isLoading) return;
     setIsLoading(true);
-    setStatus('Building transactions...');
+    setStatus('Building transaction...');
 
     try {
-      // Fetch CM
+      // fetch CM
       const cm = await fetchCandyMachine(umi, CANDY_MACHINE_ID);
-      const cmData = {
-        itemsAvailable: cm.itemsAvailable?.toString() || cm.items?.length.toString(), // Fallback to items.length
-        itemsRedeemed: cm.itemsRedeemed?.toString(),
-        collectionMint: cm.collectionMint?.toString(),
-        authority: cm.authority?.toString(),
-        items: cm.items ? cm.items.length : undefined,
-        version: cm.version,
-      };
-      console.log('Candy Machine fetched in handleMint:', cmData);
-
-      // Calculate items left (use fallback if itemsAvailable is undefined)
-      const itemsAvailable = cm.itemsAvailable ? Number(cm.itemsAvailable) : cm.items?.length || 0;
-      const itemsRedeemed = cm.itemsRedeemed ? Number(cm.itemsRedeemed) : 0;
-      const left = itemsAvailable - itemsRedeemed;
-
+      const left = Number(cm.itemsAvailable) - Number(cm.itemsRedeemed);
       if (mintAmount > left) {
         setStatus(`❌ Only ${left} items left!`);
         setIsLoading(false);
         return;
       }
 
-      // Fetch CG
+      // fetch CG
       const guard = await fetchCandyGuard(umi, CANDY_GUARD_ID);
       if (!guard) {
         throw new Error('Candy Guard not found!');
       }
-      console.log('Candy Guard fetched:', guard.publicKey.toString());
 
-      // Display total cost
+      // Build
+      let builder = transactionBuilder();
+
+      // Just display cost for user
       const totalTokenAmount = Number(TOKEN_AMOUNT) * mintAmount;
       const costBlinky = totalTokenAmount / 1_000_000;
-      setStatus(`Total cost: ${costBlinky} BLINKY for ${mintAmount} NFT${mintAmount > 1 ? 's' : ''}. Preparing mints...`);
+      setStatus(`Cost: ${costBlinky} BLINKY. Awaiting wallet approval...`);
 
-      // Process each mint in a separate transaction
-      const signatures = [];
+      // optional compute budget
+      builder = builder.add(
+        setComputeUnitLimit(umi, { units: 800_000 })
+      );
+
+      // ephemeral mint => NFT => payer’s wallet
       for (let i = 0; i < mintAmount; i++) {
-        console.log(`Preparing mint ${i + 1} of ${mintAmount}`);
-        setStatus(`Mint ${i + 1} of ${mintAmount}: Awaiting wallet approval for 400 BLINKY...`);
-
-        let builder = transactionBuilder();
-
-        // Optional compute budget
-        builder = builder.add(
-          setComputeUnitLimit(umi, { units: 800_000 })
-        );
-
-        // Add single mint instruction
         const nftMint = generateSigner(umi);
+
         builder = builder.add(
           mintV2(umi, {
             candyMachine: CANDY_MACHINE_ID,
@@ -201,7 +152,11 @@ export default function Index() {
             collectionMint: cm.collectionMint,
             collectionUpdateAuthority: cm.authority,
             mintArgs: {
-              mintLimit: some({ id: 1 }),
+              // For your guard’s mint-limit
+              mintLimit: some({
+                id: 1,
+              }),
+              // For your guard’s tokenPayment = 400 BLINKY
               tokenPayment: some({
                 mint: TOKEN_MINT,
                 amount: TOKEN_AMOUNT,
@@ -210,46 +165,18 @@ export default function Index() {
             },
           })
         );
-
-        // Check if transaction fits
-        const isSmallEnough = builder.fitsInOneTransaction(umi);
-        console.log(`Transaction for mint ${i + 1} fits in one transaction:`, isSmallEnough);
-        if (!isSmallEnough) {
-          throw new Error(`Transaction too large for mint ${i + 1}`);
-        }
-
-        // Get fresh blockhash
-        const { blockhash, lastValidBlockHeight } = await umi.rpc.getLatestBlockhash();
-        console.log(`Mint ${i + 1} blockhash:`, blockhash);
-        const tx = await builder.buildWithLatestBlockhash(umi, { blockhash, lastValidBlockHeight });
-
-        // Send and confirm
-        try {
-          console.log(`Sending mint ${i + 1} of ${mintAmount}`);
-          const { signature } = await builder.sendAndConfirm(umi, {
-            confirm: { commitment: 'confirmed' },
-            skipPreflight: true,
-          });
-          const txSigHex = Buffer.from(signature).toString('hex');
-          console.log(`Mint ${i + 1} success, sig =`, txSigHex);
-          signatures.push(txSigHex);
-          setStatus(`✅ Mint ${i + 1} of ${mintAmount} succeeded! Tx: ${txSigHex}`);
-        } catch (txError) {
-          console.error(`Mint ${i + 1} failed:`, {
-            error: txError,
-            logs: txError.logs || 'No logs available',
-          });
-          throw new Error(`Mint ${i + 1} failed: ${txError.message || txError}`);
-        }
       }
 
-      console.log('All mints completed, signatures:', signatures);
-      setStatus(`✅ Minted ${mintAmount} NFT${mintAmount > 1 ? 's' : ''} successfully! First Tx: ${signatures[0]}`);
+      // Send + confirm
+      const { signature } = await builder.sendAndConfirm(umi);
+      const txSigHex = Buffer.from(signature).toString('hex');
+      console.log('Mint success, sig =', txSigHex);
+      setStatus('✅ Minted successfully!');
 
-      // Update UI (sequence calls to avoid race conditions)
-      await fetchUserBlinkyBalance();
-      await new Promise((resolve) => setTimeout(resolve, 500)); // Wait for RPC sync
-      await fetchCandyMachineData();
+      // Update UI
+      setItemsRedeemed((prev) => (parseInt(prev, 10) + mintAmount).toString());
+      fetchUserBlinkyBalance(); // re-check user’s BLINKY
+      fetchCandyMachineData();
     } catch (err) {
       console.error('Mint error:', err);
       setStatus(`❌ Mint failed: ${err.message || err}`);
@@ -258,11 +185,11 @@ export default function Index() {
     }
   }
 
-  // UI
+  // UI with dark theme
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gray-100">
-      <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
-        <h1 className="text-3xl font-bold mb-6 text-center">Blinky OG VIP Mint</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gray-900 text-white">
+      <div className="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full">
+        <h1 className="text-3xl font-bold mb-6 text-center text-purple-300">Blinky OG VIP Mint</h1>
 
         <div className="flex justify-center mb-6">
           {isMounted && <WalletMultiButtonDynamic />}
@@ -271,13 +198,13 @@ export default function Index() {
         {wallet.connected ? (
           <div className="space-y-4">
             {blinkyBalance !== null && (
-              <p className="text-sm">
+              <p className="text-sm text-green-400">
                 Your BLINKY Balance: {blinkyBalance.toFixed(2)}
               </p>
             )}
 
             <div className="flex items-center justify-between">
-              <label htmlFor="mintAmount" className="font-medium">Mint Amount:</label>
+              <label htmlFor="mintAmount" className="font-medium text-gray-200">Mint Amount:</label>
               <input
                 id="mintAmount"
                 type="number"
@@ -285,34 +212,34 @@ export default function Index() {
                 max={10}
                 value={mintAmount}
                 onChange={(e) => setMintAmount(Number(e.target.value))}
-                className="border border-gray-300 rounded px-3 py-2 w-20 text-center"
+                className="border border-gray-600 rounded px-3 py-2 w-20 text-center bg-gray-700 text-white"
               />
             </div>
 
-            <div className="text-sm mb-4">
+            <div className="text-sm mb-4 text-gray-300">
               <p>Cost per mint: {(Number(TOKEN_AMOUNT) / 1_000_000).toFixed(2)} BLINKY</p>
             </div>
 
             <button
               onClick={handleMint}
               disabled={isLoading}
-              className={`w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium ${
+              className={`w-full bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-md font-medium ${
                 isLoading ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >
               {isLoading ? 'Processing...' : `Mint ${mintAmount} NFT${mintAmount > 1 ? 's' : ''}`}
             </button>
-            <div className="mt-4 p-3 bg-gray-50 rounded-md">
-              <p className="text-sm font-medium">
+            <div className="mt-4 p-3 bg-gray-700 rounded-md">
+              <p className="text-sm font-medium text-gray-200">
                 Status: <span className="font-normal">{status || 'Ready to mint'}</span>
               </p>
-              <p className="text-sm font-medium">
+              <p className="text-sm font-medium text-gray-200">
                 Items Redeemed: <span className="font-normal">{itemsRedeemed}</span>
               </p>
             </div>
           </div>
         ) : (
-          <p className="text-center text-gray-600">Connect your wallet to mint.</p>
+          <p className="text-center text-gray-400">Connect your wallet to mint.</p>
         )}
       </div>
     </div>
