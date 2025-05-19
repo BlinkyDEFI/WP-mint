@@ -1,8 +1,7 @@
-/* pages/index.js */
 import { useEffect, useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey } from '@solana/web3.js'; // Add PublicKey import
 import {
   getAssociatedTokenAddressSync,
   getAccount,
@@ -24,18 +23,14 @@ import {
 } from '@metaplex-foundation/umi';
 import { setComputeUnitLimit } from '@metaplex-foundation/mpl-toolbox';
 
-/*
-   CONFIG:
-   - Candy Machine & Guard
-   - BLINKY tokenPayment => 1060000 tokens
-   - mintLimit => id=1
-*/
-
-const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_ENDPOINT;
-const CANDY_MACHINE_ID = new PublicKey(process.env.NEXT_PUBLIC_CANDY_MACHINE_ID);
-const CANDY_GUARD_ID = new PublicKey(process.env.NEXT_PUBLIC_CANDY_GUARD_ID);
-const TOKEN_MINT = new PublicKey(process.env.NEXT_PUBLIC_TOKEN_MINT);
-const TOKEN_AMOUNT = BigInt(process.env.NEXT_PUBLIC_TOKEN_AMOUNT); // Single declaration
+// Import config
+import {
+  RPC_ENDPOINT,
+  CANDY_MACHINE_ID,
+  CANDY_GUARD_ID,
+  TOKEN_MINT,
+  TOKEN_AMOUNT,
+} from '../utils/config';
 
 // Next.js approach to the wallet connect button
 const WalletMultiButtonDynamic = dynamic(
@@ -185,11 +180,11 @@ export default function Index() {
     }
   }
 
-  // UI with dark theme
+  // UI
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gray-900 text-white">
-      <div className="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full">
-        <h1 className="text-3xl font-bold mb-6 text-center text-purple-300">Blinky OG VIP Mint</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gray-100">
+      <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
+        <h1 className="text-3xl font-bold mb-6 text-center">Blinky OG VIP Mint</h1>
 
         <div className="flex justify-center mb-6">
           {isMounted && <WalletMultiButtonDynamic />}
@@ -198,13 +193,13 @@ export default function Index() {
         {wallet.connected ? (
           <div className="space-y-4">
             {blinkyBalance !== null && (
-              <p className="text-sm text-green-400">
+              <p className="text-sm">
                 Your BLINKY Balance: {blinkyBalance.toFixed(2)}
               </p>
             )}
 
             <div className="flex items-center justify-between">
-              <label htmlFor="mintAmount" className="font-medium text-gray-200">Mint Amount:</label>
+              <label htmlFor="mintAmount" className="font-medium">Mint Amount:</label>
               <input
                 id="mintAmount"
                 type="number"
@@ -212,34 +207,35 @@ export default function Index() {
                 max={10}
                 value={mintAmount}
                 onChange={(e) => setMintAmount(Number(e.target.value))}
-                className="border border-gray-600 rounded px-3 py-2 w-20 text-center bg-gray-700 text-white"
+                className="border border-gray-300 rounded px-3 py-2 w-20 text-center"
               />
             </div>
 
-            <div className="text-sm mb-4 text-gray-300">
-              <p>Cost per mint: {(Number(TOKEN_AMOUNT) / 1_000_000).toFixed(2)} BLINKY</p>
+            <div className="text-sm mb-4">
+              {/* Just show 400 BLINKY cost per mint */}
+              <p>Cost per mint: {(Number(TOKEN_AMOUNT)/1_000_000).toFixed(2)} BLINKY</p>
             </div>
 
             <button
               onClick={handleMint}
               disabled={isLoading}
-              className={`w-full bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-md font-medium ${
+              className={`w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md font-medium ${
                 isLoading ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >
               {isLoading ? 'Processing...' : `Mint ${mintAmount} NFT${mintAmount > 1 ? 's' : ''}`}
             </button>
-            <div className="mt-4 p-3 bg-gray-700 rounded-md">
-              <p className="text-sm font-medium text-gray-200">
+            <div className="mt-4 p-3 bg-gray-50 rounded-md">
+              <p className="text-sm font-medium">
                 Status: <span className="font-normal">{status || 'Ready to mint'}</span>
               </p>
-              <p className="text-sm font-medium text-gray-200">
+              <p className="text-sm font-medium">
                 Items Redeemed: <span className="font-normal">{itemsRedeemed}</span>
               </p>
             </div>
           </div>
         ) : (
-          <p className="text-center text-gray-400">Connect your wallet to mint.</p>
+          <p className="text-center text-gray-600">Connect your wallet to mint.</p>
         )}
       </div>
     </div>
