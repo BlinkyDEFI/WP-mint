@@ -27,7 +27,7 @@ import { setComputeUnitLimit } from '@metaplex-foundation/mpl-toolbox';
 /*
    CONFIG:
    - Candy Machine & Guard
-   - BLINKY tokenPayment => 1060000 tokens
+   - BLINKY tokenPayment => 400 tokens
    - mintLimit => id=1
 */
 
